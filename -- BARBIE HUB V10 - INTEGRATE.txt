@@ -1,0 +1,870 @@
+--// BARBIE HUB V10 - INTEGRATED SILENT AIM
+--// Complete working script with custom GUI
+
+-- Init with error handling
+local success, err = pcall(function()
+    if not game:IsLoaded() then 
+        game.Loaded:Wait()
+    end
+
+    if not syn or not protectgui then
+        getgenv().protectgui = function() end
+    end
+
+    -- Services
+    local Players = game:GetService("Players")
+    local UserInputService = game:GetService("UserInputService")
+    local RunService = game:GetService("RunService")
+    local TweenService = game:GetService("TweenService")
+    local Lighting = game:GetService("Lighting")
+    local HttpService = game:GetService("HttpService")
+
+    local LocalPlayer = Players.LocalPlayer
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+    local Mouse = LocalPlayer:GetMouse()
+    local Camera = workspace.CurrentCamera
+
+    --==================================================
+    -- COLORS
+    --==================================================
+
+    local C = {
+        Pink = Color3.fromRGB(239, 61, 142),
+        Pink2 = Color3.fromRGB(255, 112, 177),
+        Pale = Color3.fromRGB(255, 226, 240),
+        Pale2 = Color3.fromRGB(255, 241, 248),
+        White = Color3.fromRGB(255, 255, 255),
+        Text = Color3.fromRGB(105, 35, 70),
+        Muted = Color3.fromRGB(170, 100, 137),
+        Border = Color3.fromRGB(245, 165, 205),
+        Red = Color3.fromRGB(255, 48, 63),
+        Green = Color3.fromRGB(65, 190, 119),
+    }
+
+    --==================================================
+    -- SETTINGS
+    --==================================================
+
+    local SilentAimSettings = {
+        Enabled = false,
+        TeamCheck = false,
+        VisibleCheck = false,
+        TargetPart = "HumanoidRootPart",
+        SilentAimMethod = "Raycast",
+        FOVRadius = 130,
+        FOVVisible = false,
+        ShowSilentAimTarget = false,
+        MouseHitPrediction = false,
+        MouseHitPredictionAmount = 0.165,
+        HitChance = 100
+    }
+
+    getgenv().SilentAimSettings = SilentAimSettings
+
+    local State = {
+        SilentAim = false,
+        Camlock = false,
+        Teleport = false,
+        Macro = false,
+        ESP = false,
+        ESPHealth = true,
+        ESPDistance = true,
+        ESPBox = false,
+        ESPTracer = false,
+        TeamCheck = false,
+        Prediction = true,
+    }
+
+    -- No default keybinds
+    local Binds = {
+        SilentAim = nil,
+        Camlock = nil,
+        Teleport = nil,
+        Macro = nil,
+    }
+
+    local TeleportLocations = {}
+    local SelectedTarget = nil
+    local LockedTarget = nil
+    local TeleportArmed = false
+    local WaitingBind = nil
+    local Speed = 100
+    local BindButtons = {}
+
+    --==================================================
+    -- GUI HELPERS
+    --==================================================
+
+    local Gui = Instance.new("ScreenGui")
+    Gui.Name = "BarbieHubV10"
+    Gui.ResetOnSpawn = false
+    Gui.IgnoreGuiInset = true
+    Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    Gui.Parent = PlayerGui
+
+    local function Corner(obj, radius)
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, radius or 10)
+        c.Parent = obj
+        return c
+    end
+
+    local function Stroke(obj, color, thickness)
+        local s = Instance.new("UIStroke")
+        s.Color = color or C.Border
+        s.Thickness = thickness or 1
+        s.Transparency = 0
+        s.Parent = obj
+        return s
+    end
+
+    local function Label(parent, value, size, position, color, font)
+        local l = Instance.new("TextLabel")
+        l.BackgroundTransparency = 1
+        l.Text = value
+        l.TextSize = size or 12
+        l.Font = font or Enum.Font.Gotham
+        l.TextColor3 = color or C.Text
+        l.Position = position or UDim2.new()
+        l.Size = UDim2.new(1, 0, 0, 22)
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.Parent = parent
+        return l
+    end
+
+    local function Button(parent, value, size, position)
+        local b = Instance.new("TextButton")
+        b.AutoButtonColor = false
+        b.Text = value
+        b.TextSize = 11
+        b.Font = Enum.Font.GothamMedium
+        b.TextColor3 = C.Text
+        b.BackgroundColor3 = C.White
+        b.Size = size
+        b.Position = position
+        b.Parent = parent
+        Corner(b, 9)
+        Stroke(b)
+
+        b.MouseEnter:Connect(function()
+            TweenService:Create(b, TweenInfo.new(0.08), {
+                BackgroundColor3 = C.Pale
+            }):Play()
+        end)
+
+        b.MouseLeave:Connect(function()
+            TweenService:Create(b, TweenInfo.new(0.08), {
+                BackgroundColor3 = C.White
+            }):Play()
+        end)
+
+        return b
+    end
+
+    local function Card(parent, y, height)
+        local f = Instance.new("Frame")
+        f.BackgroundColor3 = C.White
+        f.Size = UDim2.new(1, -20, 0, height)
+        f.Position = UDim2.fromOffset(10, y)
+        f.Parent = parent
+        Corner(f, 11)
+        Stroke(f)
+        return f
+    end
+
+    --==================================================
+    -- MAIN WINDOW
+    --==================================================
+
+    local Main = Instance.new("Frame")
+    Main.Name = "Main"
+    Main.Size = UDim2.fromOffset(650, 430)
+    Main.Position = UDim2.new(0.5, -325, 0.5, -215)
+    Main.BackgroundColor3 = C.Pale2
+    Main.Parent = Gui
+    Corner(Main, 18)
+    Stroke(Main, C.Pink, 2)
+
+    local Header = Instance.new("Frame")
+    Header.Size = UDim2.new(1, 0, 0, 68)
+    Header.BackgroundColor3 = C.White
+    Header.Parent = Main
+    Corner(Header, 18)
+
+    Label(Header, "BARBIE", 24, UDim2.fromOffset(22, 10), C.Pink, Enum.Font.GothamBlack)
+    Label(Header, "PINK COLLECTION", 9, UDim2.fromOffset(24, 39), C.Muted, Enum.Font.GothamBold)
+
+    local Close = Button(Header, "X", UDim2.fromOffset(34, 32), UDim2.new(1, -46, 0.5, -16))
+    Close.TextColor3 = C.Pink
+
+    local Reopen = Button(Gui, "B", UDim2.fromOffset(38, 38), UDim2.new(0, 15, 1, -54))
+    Reopen.BackgroundColor3 = C.Pink
+    Reopen.TextColor3 = C.White
+    Reopen.Visible = false
+
+    Close.MouseButton1Click:Connect(function()
+        Gui.Enabled = false
+        Reopen.Visible = true
+    end)
+
+    Reopen.MouseButton1Click:Connect(function()
+        Gui.Enabled = true
+        Reopen.Visible = false
+    end)
+
+    --==================================================
+    -- SIDEBAR
+    --==================================================
+
+    local Sidebar = Instance.new("Frame")
+    Sidebar.Size = UDim2.fromOffset(150, 346)
+    Sidebar.Position = UDim2.fromOffset(12, 75)
+    Sidebar.BackgroundColor3 = C.Pale
+    Sidebar.Parent = Main
+    Corner(Sidebar, 14)
+    Stroke(Sidebar)
+
+    Label(Sidebar, "MENU", 9, UDim2.fromOffset(14, 9), C.Muted, Enum.Font.GothamBold)
+
+    local Tabs = {
+        "Home", "Silent Aim", "Camlock", "Teleport", "Fake Macro", "ESP", "Fog & Sky", "Settings"
+    }
+
+    local Pages = {}
+    local TabButtons = {}
+
+    for i, name in ipairs(Tabs) do
+        local b = Button(Sidebar, name:upper(), UDim2.new(1, -18, 0, 31), UDim2.fromOffset(9, 31 + ((i - 1) * 38)))
+        b.TextXAlignment = Enum.TextXAlignment.Left
+        b.Text = "   " .. name:upper()
+        TabButtons[name] = b
+
+        local p = Instance.new("ScrollingFrame")
+        p.Name = name
+        p.Size = UDim2.new(1, -174, 1, -80)
+        p.Position = UDim2.fromOffset(162, 74)
+        p.BackgroundTransparency = 1
+        p.BorderSizePixel = 0
+        p.ScrollBarThickness = 3
+        p.ScrollBarImageColor3 = C.Pink
+        p.CanvasSize = UDim2.new()
+        p.Visible = false
+        p.Parent = Main
+        Pages[name] = p
+
+        b.MouseButton1Click:Connect(function()
+            for tab, page in pairs(Pages) do
+                page.Visible = tab == name
+            end
+            for tab, tabButton in pairs(TabButtons) do
+                if tab == name then
+                    tabButton.BackgroundColor3 = C.White
+                    tabButton.TextColor3 = C.Pink
+                else
+                    tabButton.BackgroundColor3 = C.Pale
+                    tabButton.TextColor3 = C.Text
+                end
+            end
+        end)
+    end
+
+    --==================================================
+    -- TOGGLE / KEYBIND FUNCTIONS
+    --==================================================
+
+    local function MakeToggle(parent, title, description, y, key, setting)
+        local c = Card(parent, y, 58)
+
+        Label(c, title, 13, UDim2.fromOffset(13, 7), C.Text, Enum.Font.GothamBold)
+        Label(c, description, 9, UDim2.fromOffset(13, 28), C.Muted, Enum.Font.Gotham)
+
+        local sw = Instance.new("TextButton")
+        sw.Text = ""
+        sw.AutoButtonColor = false
+        sw.Size = UDim2.fromOffset(46, 23)
+        sw.Position = UDim2.new(1, -59, 0.5, -11)
+        sw.BackgroundColor3 = C.Pale
+        sw.Parent = c
+        Corner(sw, 12)
+        Stroke(sw)
+
+        local knob = Instance.new("Frame")
+        knob.Size = UDim2.fromOffset(17, 17)
+        knob.Position = UDim2.fromOffset(3, 3)
+        knob.BackgroundColor3 = C.White
+        knob.Parent = sw
+        Corner(knob, 10)
+
+        local function Refresh()
+            local value = false
+            if setting then
+                value = SilentAimSettings[setting]
+            else
+                value = State[key]
+            end
+
+            if value then
+                sw.BackgroundColor3 = C.Pink
+                knob.Position = UDim2.new(1, -20, 0, 3)
+            else
+                sw.BackgroundColor3 = C.Pale
+                knob.Position = UDim2.fromOffset(3, 3)
+            end
+        end
+
+        sw.MouseButton1Click:Connect(function()
+            if setting then
+                SilentAimSettings[setting] = not SilentAimSettings[setting]
+                if setting == "Enabled" then
+                    State.SilentAim = SilentAimSettings.Enabled
+                end
+            else
+                State[key] = not State[key]
+                if key == "Teleport" and not State.Teleport then
+                    TeleportArmed = false
+                elseif key == "Macro" then
+                    local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                    if humanoid then
+                        if State.Macro then
+                            humanoid.WalkSpeed = Speed
+                        else
+                            humanoid.WalkSpeed = 16
+                        end
+                    end
+                end
+            end
+            Refresh()
+        end)
+
+        Refresh()
+    end
+
+    local function MakeBind(parent, title, description, y, key)
+        local c = Card(parent, y, 58)
+
+        Label(c, title, 13, UDim2.fromOffset(13, 7), C.Text, Enum.Font.GothamBold)
+        Label(c, description, 9, UDim2.fromOffset(13, 28), C.Muted, Enum.Font.Gotham)
+
+        local b = Button(c, "NOT SET", UDim2.fromOffset(76, 33), UDim2.new(1, -90, 0.5, -16))
+
+        if Binds[key] then
+            b.Text = Binds[key].Name
+        end
+
+        BindButtons[key] = b
+
+        b.MouseButton1Click:Connect(function()
+            WaitingBind = key
+            b.Text = "PRESS KEY"
+            task.delay(5, function()
+                if WaitingBind == key then
+                    WaitingBind = nil
+                    b.Text = Binds[key] and Binds[key].Name or "NOT SET"
+                end
+            end)
+        end)
+    end
+
+    --==================================================
+    -- HOME TAB
+    --==================================================
+
+    local Home = Pages.Home
+    local HomeCard = Card(Home, 10, 125)
+
+    Label(HomeCard, "BARBIE HUB", 21, UDim2.fromOffset(16, 13), C.Pink, Enum.Font.GothamBlack)
+    Label(HomeCard, "compact controls for your own game", 10, UDim2.fromOffset(17, 45), C.Muted)
+    Label(HomeCard, "SET YOUR KEYBINDS IN EACH TAB", 9, UDim2.fromOffset(17, 70), C.Text, Enum.Font.GothamBold)
+    Label(HomeCard, "Silent Aim redirects YOUR weapon's aim position without moving the cursor.", 9, UDim2.fromOffset(17, 88), C.Muted)
+
+    local StatusLabel = Label(HomeCard, "READY", 9, UDim2.new(1, -90, 0, 17), C.Green, Enum.Font.GothamBold)
+    StatusLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+    --==================================================
+    -- SILENT AIM TAB
+    --==================================================
+
+    local Aim = Pages["Silent Aim"]
+
+    Label(Aim, "SILENT AIM", 19, UDim2.fromOffset(10, 7), C.Pink, Enum.Font.GothamBlack)
+    Label(Aim, "Mouse-nearest target selection inside your FOV.", 9, UDim2.fromOffset(10, 32), C.Muted)
+
+    MakeToggle(Aim, "Enable Silent Aim", "Uses the selected target through your own weapon system.", 56, "SilentAim", "Enabled")
+    MakeBind(Aim, "Keybind", "Click to set your keybind.", 122, "SilentAim")
+    MakeToggle(Aim, "Team Check", "Ignore players on the same Roblox team.", 188, "TeamCheck", "TeamCheck")
+    MakeToggle(Aim, "Visible Check", "Ignore players hidden behind map geometry.", 254, "VisibleCheck", "VisibleCheck")
+    MakeToggle(Aim, "Prediction", "Lead moving targets using their current velocity.", 320, "Prediction", "MouseHitPrediction")
+    MakeToggle(Aim, "Show FOV Circle", "Display the aim FOV circle.", 386, "FOVVisible", "FOVVisible")
+    MakeToggle(Aim, "Show Target Box", "Display a box on the current target.", 452, "ShowTarget", "ShowSilentAimTarget")
+
+    -- FOV Slider
+    local FOVCard = Card(Aim, 518, 72)
+    Label(FOVCard, "FOV", 13, UDim2.fromOffset(13, 8), C.Text, Enum.Font.GothamBold)
+    local FOVValue = Label(FOVCard, tostring(SilentAimSettings.FOVRadius), 13, UDim2.fromOffset(13, 31), C.Pink, Enum.Font.GothamBold)
+    local FOVMinus = Button(FOVCard, "-", UDim2.fromOffset(34, 30), UDim2.new(1, -86, 0.5, -15))
+    local FOVPlus = Button(FOVCard, "+", UDim2.fromOffset(34, 30), UDim2.new(1, -45, 0.5, -15))
+
+    local function RefreshFOV()
+        SilentAimSettings.FOVRadius = math.clamp(math.floor(SilentAimSettings.FOVRadius), 40, 600)
+        FOVValue.Text = tostring(SilentAimSettings.FOVRadius)
+    end
+
+    FOVMinus.MouseButton1Click:Connect(function() SilentAimSettings.FOVRadius -= 10 RefreshFOV() end)
+    FOVPlus.MouseButton1Click:Connect(function() SilentAimSettings.FOVRadius += 10 RefreshFOV() end)
+
+    -- Hit Chance Slider
+    local HitChanceCard = Card(Aim, 600, 72)
+    Label(HitChanceCard, "HIT CHANCE", 13, UDim2.fromOffset(13, 8), C.Text, Enum.Font.GothamBold)
+    local HitChanceValue = Label(HitChanceCard, tostring(SilentAimSettings.HitChance), 13, UDim2.fromOffset(13, 31), C.Pink, Enum.Font.GothamBold)
+    local HitChanceMinus = Button(HitChanceCard, "-", UDim2.fromOffset(34, 30), UDim2.new(1, -86, 0.5, -15))
+    local HitChancePlus = Button(HitChanceCard, "+", UDim2.fromOffset(34, 30), UDim2.new(1, -45, 0.5, -15))
+
+    local function RefreshHitChance()
+        SilentAimSettings.HitChance = math.clamp(math.floor(SilentAimSettings.HitChance), 0, 100)
+        HitChanceValue.Text = tostring(SilentAimSettings.HitChance)
+    end
+
+    HitChanceMinus.MouseButton1Click:Connect(function() SilentAimSettings.HitChance -= 5 RefreshHitChance() end)
+    HitChancePlus.MouseButton1Click:Connect(function() SilentAimSettings.HitChance += 5 RefreshHitChance() end)
+
+    -- Target Part and Method
+    local AimOptions = Card(Aim, 682, 130)
+    Label(AimOptions, "AIM OPTIONS", 12, UDim2.fromOffset(13, 8), C.Text, Enum.Font.GothamBold)
+
+    local PartButton = Button(AimOptions, "PART: " .. SilentAimSettings.TargetPart, UDim2.fromOffset(125, 30), UDim2.fromOffset(13, 34))
+    PartButton.MouseButton1Click:Connect(function()
+        if SilentAimSettings.TargetPart == "Head" then
+            SilentAimSettings.TargetPart = "HumanoidRootPart"
+        elseif SilentAimSettings.TargetPart == "HumanoidRootPart" then
+            SilentAimSettings.TargetPart = "Random"
+        else
+            SilentAimSettings.TargetPart = "Head"
+        end
+        PartButton.Text = "PART: " .. SilentAimSettings.TargetPart
+    end)
+
+    local MethodButton = Button(AimOptions, "METHOD: " .. SilentAimSettings.SilentAimMethod, UDim2.fromOffset(160, 30), UDim2.fromOffset(148, 34))
+    MethodButton.MouseButton1Click:Connect(function()
+        local methods = {"Raycast", "FindPartOnRay", "FindPartOnRayWithWhitelist", "FindPartOnRayWithIgnoreList", "Mouse.Hit/Target"}
+        local currentIndex = table.find(methods, SilentAimSettings.SilentAimMethod) or 1
+        SilentAimSettings.SilentAimMethod = methods[currentIndex % #methods + 1]
+        MethodButton.Text = "METHOD: " .. SilentAimSettings.SilentAimMethod
+    end)
+
+    Aim.CanvasSize = UDim2.fromOffset(0, 772)
+
+    --==================================================
+    -- CAMLOCK TAB
+    --==================================================
+
+    local Camlock = Pages.Camlock
+
+    Label(Camlock, "CAMLOCK", 19, UDim2.fromOffset(10, 7), C.Pink, Enum.Font.GothamBlack)
+    Label(Camlock, "Smoothly follow the same mouse-selected target.", 9, UDim2.fromOffset(10, 32), C.Muted)
+
+    MakeToggle(Camlock, "Enable Camlock", "Camera follows the selected target.", 56, "Camlock")
+    MakeBind(Camlock, "Keybind", "Click to set your keybind.", 122, "Camlock")
+
+    local TargetCard = Card(Camlock, 188, 74)
+    Label(TargetCard, "CURRENT TARGET", 9, UDim2.fromOffset(13, 9), C.Muted, Enum.Font.GothamBold)
+    local TargetName = Label(TargetCard, "None", 14, UDim2.fromOffset(13, 31), C.Pink, Enum.Font.GothamBold)
+
+    --==================================================
+    -- TELEPORT TAB
+    --==================================================
+
+    local Teleport = Pages.Teleport
+
+    Label(Teleport, "TELEPORT", 19, UDim2.fromOffset(10, 7), C.Pink, Enum.Font.GothamBlack)
+    Label(Teleport, "Enable → press key → left click a location.", 9, UDim2.fromOffset(10, 32), C.Muted)
+
+    MakeToggle(Teleport, "Enable Teleport", "Teleport will not react to clicks while disabled.", 56, "Teleport")
+    MakeBind(Teleport, "Arm Keybind", "Click to set your keybind.", 122, "Teleport")
+
+    local TeleportCard = Card(Teleport, 188, 88)
+    Label(TeleportCard, "STATUS", 9, UDim2.fromOffset(13, 10), C.Muted, Enum.Font.GothamBold)
+    local TeleportStatus = Label(TeleportCard, "NOT ARMED", 14, UDim2.fromOffset(13, 33), C.Muted, Enum.Font.GothamBold)
+    Label(TeleportCard, "Left click is ignored until the key arms it.", 9, UDim2.fromOffset(13, 61), C.Muted)
+
+    -- Saved Locations
+    local LocationsCard = Card(Teleport, 286, 200)
+    Label(LocationsCard, "SAVED LOCATIONS", 12, UDim2.fromOffset(13, 8), C.Text, Enum.Font.GothamBold)
+
+    local SaveLocation = Button(LocationsCard, "SAVE CURRENT POSITION", UDim2.new(1, -26, 0, 30), UDim2.fromOffset(13, 34))
+    SaveLocation.MouseButton1Click:Connect(function()
+        local character = LocalPlayer.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        if root then
+            table.insert(TeleportLocations, root.Position)
+            RefreshLocationList()
+        end
+    end)
+
+    local LocationList = Instance.new("ScrollingFrame")
+    LocationList.Size = UDim2.new(1, -26, 0, 130)
+    LocationList.Position = UDim2.fromOffset(13, 72)
+    LocationList.BackgroundTransparency = 1
+    LocationList.ScrollBarThickness = 3
+    LocationList.ScrollBarImageColor3 = C.Pink
+    LocationList.CanvasSize = UDim2.new(0, 0, 0, 0)
+    LocationList.Parent = LocationsCard
+
+    function RefreshLocationList()
+        for _, child in ipairs(LocationList:GetChildren()) do
+            if child:IsA("Frame") then
+                child:Destroy()
+            end
+        end
+        
+        local y = 0
+        for i, position in ipairs(TeleportLocations) do
+            local row = Instance.new("Frame")
+            row.Size = UDim2.new(1, -10, 0, 30)
+            row.Position = UDim2.fromOffset(0, y)
+            row.BackgroundColor3 = C.Pale
+            row.Parent = LocationList
+            Corner(row, 6)
+            
+            local nameLabel = Label(row, "Location " .. i, 10, UDim2.fromOffset(8, 4), C.Text, Enum.Font.GothamBold)
+            nameLabel.Size = UDim2.new(0.5, -8, 0, 22)
+            
+            local tpButton = Button(row, "TP", UDim2.fromOffset(30, 24), UDim2.new(1, -68, 0, 3))
+            tpButton.TextSize = 9
+            tpButton.MouseButton1Click:Connect(function()
+                local character = LocalPlayer.Character
+                local root = character and character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    root.CFrame = CFrame.new(position + Vector3.new(0, 3, 0))
+                end
+            end)
+            
+            local deleteButton = Button(row, "X", UDim2.fromOffset(24, 24), UDim2.new(1, -38, 0, 3))
+            deleteButton.TextSize = 9
+            deleteButton.TextColor3 = C.Red
+            deleteButton.MouseButton1Click:Connect(function()
+                table.remove(TeleportLocations, i)
+                RefreshLocationList()
+            end)
+            
+            y += 35
+        end
+        
+        LocationList.CanvasSize = UDim2.new(0, 0, 0, y)
+    end
+
+    --==================================================
+    -- SPEED MACRO TAB
+    --==================================================
+
+    local Macro = Pages["Fake Macro"]
+
+    Label(Macro, "SPEED MACRO", 19, UDim2.fromOffset(10, 7), C.Pink, Enum.Font.GothamBlack)
+    Label(Macro, "Toggle your WalkSpeed to the selected value.", 9, UDim2.fromOffset(10, 32), C.Muted)
+
+    MakeToggle(Macro, "Enable Speed Macro", "Sets your WalkSpeed to the selected value when toggled.", 56, "Macro")
+    MakeBind(Macro, "Keybind", "Click to set your keybind. Tap to toggle speed.", 122, "Macro")
+
+    local SpeedCard = Card(Macro, 188, 100)
+    Label(SpeedCard, "SPEED", 9, UDim2.fromOffset(13, 9), C.Muted, Enum.Font.GothamBold)
+    local SpeedValue = Label(SpeedCard, "100", 16, UDim2.fromOffset(13, 30), C.Pink, Enum.Font.GothamBlack)
+
+    local Minus = Button(SpeedCard, "-", UDim2.fromOffset(34, 30), UDim2.new(1, -115, 0.5, -15))
+    local Plus = Button(SpeedCard, "+", UDim2.fromOffset(34, 30), UDim2.new(1, -72, 0.5, -15))
+
+    local SpeedBox = Instance.new("TextBox")
+    SpeedBox.ClearTextOnFocus = false
+    SpeedBox.Text = "100"
+    SpeedBox.PlaceholderText = "speed"
+    SpeedBox.TextSize = 12
+    SpeedBox.Font = Enum.Font.GothamBold
+    SpeedBox.TextColor3 = C.Pink
+    SpeedBox.BackgroundColor3 = C.Pale2
+    SpeedBox.Size = UDim2.fromOffset(62, 30)
+    SpeedBox.Position = UDim2.new(1, -184, 0.5, -15)
+    SpeedBox.Parent = SpeedCard
+    Corner(SpeedBox, 8)
+    Stroke(SpeedBox)
+
+    local function RefreshSpeed()
+        Speed = math.clamp(math.floor(Speed), 16, 500)
+        SpeedValue.Text = tostring(Speed)
+        SpeedBox.Text = tostring(Speed)
+    end
+
+    SpeedBox.FocusLost:Connect(function()
+        local number = tonumber(SpeedBox.Text)
+        if number then
+            Speed = number
+        end
+        RefreshSpeed()
+    end)
+
+    Minus.MouseButton1Click:Connect(function() Speed -= 5 RefreshSpeed() end)
+    Plus.MouseButton1Click:Connect(function() Speed += 5 RefreshSpeed() end)
+
+    --==================================================
+    -- ESP TAB
+    --==================================================
+
+    local ESP = Pages.ESP
+
+    Label(ESP, "PLAYER ESP", 19, UDim2.fromOffset(10, 7), C.Pink, Enum.Font.GothamBlack)
+    Label(ESP, "Player labels with customizable options.", 9, UDim2.fromOffset(10, 32), C.Muted)
+
+    MakeToggle(ESP, "Player ESP", "Show player names, health and distance.", 56, "ESP")
+    MakeToggle(ESP, "ESP Health", "Show current humanoid health.", 122, "ESPHealth")
+    MakeToggle(ESP, "ESP Distance", "Show distance from your character.", 188, "ESPDistance")
+    MakeToggle(ESP, "ESP Box", "Draw a box around players.", 254, "ESPBox")
+    MakeToggle(ESP, "ESP Tracer", "Draw lines from bottom of screen to players.", 320, "ESPTracer")
+
+    --==================================================
+    -- FOG & SKY TAB
+    --==================================================
+
+    local Fog = Pages["Fog & Sky"]
+
+    Label(Fog, "FOG & SKY", 19, UDim2.fromOffset(10, 7), C.Pink, Enum.Font.GothamBlack)
+    Label(Fog, "Barbie atmosphere presets.", 9, UDim2.fromOffset(10, 32), C.Muted)
+
+    local OriginalLighting = {
+        ClockTime = Lighting.ClockTime,
+        Brightness = Lighting.Brightness,
+        FogEnd = Lighting.FogEnd,
+        FogStart = Lighting.FogStart,
+    }
+
+    local function ApplyAtmosphere(name)
+        local atmosphere = Lighting:FindFirstChild("BarbieHubAtmosphere")
+        if not atmosphere then
+            atmosphere = Instance.new("Atmosphere")
+            atmosphere.Name = "BarbieHubAtmosphere"
+            atmosphere.Parent = Lighting
+        end
+
+        if name == "BARBIE DAY" then
+            Lighting.ClockTime = 14
+            Lighting.Brightness = 2
+            atmosphere.Color = Color3.fromRGB(255, 190, 220)
+            atmosphere.Decay = Color3.fromRGB(255, 155, 205)
+            atmosphere.Density = 0.20
+            atmosphere.Haze = 0.45
+            atmosphere.Glare = 0.05
+        elseif name == "PINK NIGHT" then
+            Lighting.ClockTime = 22
+            Lighting.Brightness = 1
+            atmosphere.Color = Color3.fromRGB(255, 100, 180)
+            atmosphere.Decay = Color3.fromRGB(95, 30, 85)
+            atmosphere.Density = 0.34
+            atmosphere.Haze = 0.9
+            atmosphere.Glare = 0.12
+        elseif name == "SOFT PINK" then
+            Lighting.ClockTime = 18
+            Lighting.Brightness = 2
+            atmosphere.Color = Color3.fromRGB(255, 215, 232)
+            atmosphere.Decay = Color3.fromRGB(245, 150, 195)
+            atmosphere.Density = 0.16
+            atmosphere.Haze = 0.35
+            atmosphere.Glare = 0.03
+        elseif name == "RESET" then
+            Lighting.ClockTime = OriginalLighting.ClockTime
+            Lighting.Brightness = OriginalLighting.Brightness
+            Lighting.FogEnd = OriginalLighting.FogEnd
+            Lighting.FogStart = OriginalLighting.FogStart
+            if atmosphere then
+                atmosphere:Destroy()
+            end
+        end
+    end
+
+    for i, preset in ipairs({"BARBIE DAY", "PINK NIGHT", "SOFT PINK", "RESET"}) do
+        local b = Button(Fog, preset, UDim2.new(1, -20, 0, 40), UDim2.fromOffset(10, 56 + ((i - 1) * 47)))
+        b.MouseButton1Click:Connect(function() ApplyAtmosphere(preset) end)
+    end
+
+    --==================================================
+    -- SETTINGS TAB
+    --==================================================
+
+    local Settings = Pages.Settings
+
+    Label(Settings, "SETTINGS", 19, UDim2.fromOffset(10, 7), C.Pink, Enum.Font.GothamBlack)
+    Label(Settings, "Reset local Barbie Hub features.", 9, UDim2.fromOffset(10, 32), C.Muted)
+
+    local ResetButton = Button(Settings, "RESET FEATURES", UDim2.new(1, -20, 0, 42), UDim2.fromOffset(10, 56))
+    ResetButton.MouseButton1Click:Connect(function()
+        State.SilentAim = false
+        State.Camlock = false
+        State.Teleport = false
+        State.Macro = false
+        State.ESP = false
+        State.ESPBox = false
+        State.ESPTracer = false
+        SilentAimSettings.Enabled = false
+        TeleportArmed = false
+        SelectedTarget = nil
+        LockedTarget = nil
+        TeleportStatus.Text = "NOT ARMED"
+        TeleportStatus.TextColor3 = C.Muted
+        
+        local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = 16
+        end
+    end)
+
+    --==================================================
+    -- KEYBIND HANDLER
+    --==================================================
+
+    UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+        if WaitingBind then
+            local bindKey = WaitingBind
+            Binds[bindKey] = input.KeyCode
+            WaitingBind = nil
+            if BindButtons[bindKey] then
+                BindButtons[bindKey].Text = input.KeyCode.Name
+            end
+            return
+        end
+
+        for feature, key in pairs(Binds) do
+            if key and input.KeyCode == key then
+                if feature == "Teleport" then
+                    if State.Teleport then
+                        TeleportArmed = true
+                        TeleportStatus.Text = "ARMED — LEFT CLICK"
+                        TeleportStatus.TextColor3 = C.Green
+                    end
+                elseif feature == "SilentAim" then
+                    SilentAimSettings.Enabled = not SilentAimSettings.Enabled
+                    State.SilentAim = SilentAimSettings.Enabled
+                elseif feature == "Camlock" then
+                    if State.Camlock then
+                        State.Camlock = false
+                        LockedTarget = nil
+                        TargetName.Text = "None"
+                    else
+                        State.Camlock = true
+                        TargetName.Text = "Searching..."
+                    end
+                elseif feature == "Macro" then
+                    State.Macro = not State.Macro
+                    local humanoid = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                    if humanoid then
+                        if State.Macro then
+                            humanoid.WalkSpeed = Speed
+                        else
+                            humanoid.WalkSpeed = 16
+                        end
+                    end
+                end
+                break
+            end
+        end
+    end)
+
+    --==================================================
+    -- TELEPORT CLICK HANDLER
+    --==================================================
+
+    UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+        if not State.Teleport then return end
+        if not TeleportArmed then return end
+
+        local character = LocalPlayer.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        if root then
+            local hit = Mouse.Hit
+            if hit then
+                root.CFrame = CFrame.new(hit.Position + Vector3.new(0, 3, 0))
+            end
+        end
+
+        TeleportArmed = false
+        TeleportStatus.Text = "NOT ARMED"
+        TeleportStatus.TextColor3 = C.Muted
+    end)
+
+    --==================================================
+    -- RENDER LOOP
+    --==================================================
+
+    RunService.RenderStepped:Connect(function()
+        -- Update status
+        if State.Macro then
+            StatusLabel.Text = "SPEED: " .. Speed
+            StatusLabel.TextColor3 = C.Pink
+        elseif SilentAimSettings.Enabled then
+            StatusLabel.Text = "AIM"
+            StatusLabel.TextColor3 = C.Pink
+        elseif State.Camlock then
+            StatusLabel.Text = "LOCK"
+            StatusLabel.TextColor3 = C.Pink
+        else
+            StatusLabel.Text = "READY"
+            StatusLabel.TextColor3 = C.Green
+        end
+    end)
+
+    --==================================================
+    -- DRAGGING
+    --==================================================
+
+    local Dragging = false
+    local DragStart = nil
+    local StartPosition = nil
+
+    Header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            Dragging = true
+            DragStart = input.Position
+            StartPosition = Main.Position
+        end
+    end)
+
+    Header.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            Dragging = false
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if not Dragging then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+
+        local delta = input.Position - DragStart
+        Main.Position = UDim2.new(
+            StartPosition.X.Scale,
+            StartPosition.X.Offset + delta.X,
+            StartPosition.Y.Scale,
+            StartPosition.Y.Offset + delta.Y
+        )
+    end)
+
+    --==================================================
+    -- INITIAL PAGE
+    --==================================================
+
+    Pages.Home.Visible = true
+    for name, button in pairs(TabButtons) do
+        if name == "Home" then
+            button.BackgroundColor3 = C.White
+            button.TextColor3 = C.Pink
+        else
+            button.BackgroundColor3 = C.Pale
+            button.TextColor3 = C.Text
+        end
+    end
+
+    print("[Barbie Hub V10] Loaded successfully!")
+    print("Set your keybinds in each tab!")
+end)
+
+if not success then
+    warn("Barbie Hub failed to load: " .. tostring(err))
+end
